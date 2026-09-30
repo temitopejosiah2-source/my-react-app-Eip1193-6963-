@@ -8,22 +8,29 @@ const SUPPORTED_CHAINS = {
   10143: "Monad Testnet",
 };
 
+// Converts the hex wei string eth_getBalance returns into a readable ETH string.
+function weiHexToEth(weiHex) {
+  const wei = BigInt(weiHex);
+  const eth = Number(wei) / 1e18;
+  return eth.toFixed(4);
+}
+
 function App() {
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [account, setAccount] = useState("");
   const [chainId, setChainId] = useState(null);
+  const [balance, setBalance] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  // Runs whenever a wallet is connected. Attaches the EIP-1193 event
-  // listeners onto that specific provider, not the global window.ethereum.
   useEffect(() => {
     if (!selectedProvider) return;
 
     function handleAccountsChanged(accounts) {
       if (accounts.length === 0) {
-        // User disconnected from inside the wallet itself
         setAccount("");
         setSelectedProvider(null);
+        setBalance(null);
       } else {
         setAccount(accounts[0]);
       }
@@ -42,8 +49,6 @@ function App() {
     };
   }, [selectedProvider]);
 
-  // Assignment 2b: check the current chain against the supported list
-  // every time chainId changes.
   useEffect(() => {
     if (chainId === null) {
       setError("");
@@ -51,6 +56,33 @@ function App() {
     }
     setError(SUPPORTED_CHAINS[chainId] ? "" : `Unsupported chain (id ${chainId}).`);
   }, [chainId]);
+
+  // Refetch balance any time the account or chain changes, so it doesn't
+  // silently go stale after a switch.
+  useEffect(() => {
+    if (selectedProvider && account) {
+      fetchBalance(selectedProvider, account);
+    }
+  }, [selectedProvider, account, chainId]);
+
+  async function fetchBalance(provider, address) {
+    try {
+      const weiHex = await provider.request({
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      });
+      setBalance(weiHexToEth(weiHex));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const handleRefreshBalance = async () => {
+    if (!selectedProvider || !account) return;
+    setRefreshing(true);
+    await fetchBalance(selectedProvider, account);
+    setRefreshing(false);
+  };
 
   const handleSelectProvider = async (providerDetail) => {
     try {
@@ -66,15 +98,14 @@ function App() {
     }
   };
 
-  // Assignment 2a: disconnect button
   const handleDisconnect = () => {
     setSelectedProvider(null);
     setAccount("");
     setChainId(null);
+    setBalance(null);
     setError("");
   };
 
-  // Assignment 2b: prompt the user to switch to a supported chain
   const handleSwitchChain = async (targetChainId) => {
     if (!selectedProvider) return;
     try {
@@ -100,9 +131,26 @@ function App() {
           <p>
             Chain ID: {chainId} {SUPPORTED_CHAINS[chainId] ? `(${SUPPORTED_CHAINS[chainId]})` : ""}
           </p>
+          <p>
+            Balance: {balance !== null ? `${balance} ETH` : "—"}{" "}
+            <button onClick={handleRefreshBalance} disabled={refreshing}>
+              {refreshing ? "Refreshing..." : "Refresh Balance"}
+            </button>
+          </p>
           <button onClick={handleDisconnect}>Disconnect</button>
         </div>
       )}
+
+      <div style={{ marginTop: 20 }}>
+        <p>Supported chains:</p>
+        <ul>
+          {Object.entries(SUPPORTED_CHAINS).map(([id, name]) => (
+            <li key={id}>
+              {name} (id {id})
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {error && (
         <div style={{ color: "red", marginTop: 10 }}>
